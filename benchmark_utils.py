@@ -60,21 +60,9 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
     
     # Extract hardware info
     gpu_type = server_config.get("gpu_type", "N/A")
+    
+    # Extract model info (moved from server_config to top level)
     model_root = server_config.get("model_root", "N/A")
-    
-    # Extract metrics from server config
-    metrics = server_config.get("metrics", {})
-    gpu_memory_usage_gb = metrics.get("gpu_memory_usage_gb", 0)
-    gpu_cache_usage = metrics.get("gpu_cache_usage", 0)
-    num_gpu_blocks = metrics.get("num_gpu_blocks", 0)
-    num_cpu_blocks = metrics.get("num_cpu_blocks", 0)
-    gpu_utilization = metrics.get("gpu_utilization", 0)
-    
-    # Format GPU memory to human-readable
-    if gpu_memory_usage_gb:
-        gpu_memory_str = f"{gpu_memory_usage_gb:.2f} GB"
-    else:
-        gpu_memory_str = "N/A"
     
     # Extract vLLM parameters
     vllm_params = server_config.get("vllm_params", {})
@@ -133,11 +121,6 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
 | Parameter | Value |
 |-----------|-------|
 | **GPU Type** | {gpu_type} |
-| **Model Root Path** | {model_root} |
-| **GPU Memory Usage** | {gpu_memory_str} |
-| **GPU Cache Usage** | {gpu_cache_usage:.1f}% |
-| **GPU Blocks** | {num_gpu_blocks} |
-| **CPU Blocks** | {num_cpu_blocks} |
 
 ### vLLM Parameters
 | Parameter | Value |
@@ -153,11 +136,6 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
 | **trust_remote_code** | {trust_remote_code} |
 """.format(
         gpu_type=gpu_type,
-        model_root=model_root,
-        gpu_memory_str=gpu_memory_str,
-        gpu_cache_usage=gpu_cache_usage if gpu_cache_usage else 0,
-        num_gpu_blocks=num_gpu_blocks if num_gpu_blocks else 0,
-        num_cpu_blocks=num_cpu_blocks if num_cpu_blocks else 0,
         gpu_memory_utilization=gpu_memory_utilization,
         enable_auto_tool_choice=enable_auto_tool_choice,
         tool_call_parser=tool_call_parser,
@@ -175,8 +153,8 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
 ## Model Information
 | Field | Value |
 |-------|-------|
-| **Model ID** | {model_id} |
 | **Model Name** | {model_name} |
+| **Model Root Path** | {model_root} |
 | **Backend** | {backend} |
 
 {hardware_section}## Test Configuration
