@@ -206,12 +206,3 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Benchmark outputs
-benchmark_results.json
-benchmark_summary.md
-
-# Benchmark result directories
-results/
-summary/
-result/
-
