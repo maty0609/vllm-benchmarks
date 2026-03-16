@@ -7,7 +7,8 @@ Based on: https://docs.vllm.ai/en/stable/benchmarking/cli/
 import asyncio
 import json
 import os
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from vllm.benchmarks.serve import benchmark, get_samples, get_tokenizer, TaskType
 from vllm.benchmarks.datasets import SampleRequest
@@ -15,6 +16,110 @@ from benchmark_utils import generate_markdown_summary
 
 # Load environment variables from .env file
 load_dotenv()
+
+
+async def fetch_server_config(base_url: str, headers: dict) -> dict:
+    """Fetch server configuration from vLLM API endpoints and environment variables.
+    
+    Returns dict with model info, GPU info, and vLLM configuration parameters.
+    Gracefully handles missing endpoints with empty values or environment variable fallbacks.
+    """
+    import aiohttp
+    
+    config = {}
+    connector = aiohttp.TCPConnector()
+    
+    async with aiohttp.ClientSession(connector=connector) as session:
+        # 1. Fetch full model info from /v1/models
+        try:
+            async with session.get(f"{base_url}/v1/models", headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if "data" in data and len(data["data"]) > 0:
+                        model_info = data["data"][0]
+                        config["model_id"] = model_info.get("id", "N/A")
+                        config["model_root"] = model_info.get("root", "N/A")
+                        config["model_object"] = model_info.get("object", "model")
+                else:
+                    print(f"Warning: /v1/models returned status {response.status}")
+        except Exception as e:
+            print(f"Warning: Could not fetch model info from /v1/models: {e}")
+        
+        # 2. Fetch server metrics from /metrics (Prometheus format)
+        try:
+            async with session.get(f"{base_url}/metrics", headers=headers) as response:
+                if response.status == 200:
+                    metrics_text = await response.text()
+                    # Parse key metrics from Prometheus format
+                    config["metrics"] = parse_vllm_metrics(metrics_text)
+                else:
+                    print(f"Warning: /metrics returned status {response.status}")
+        except Exception as e:
+            print(f"Warning: Could not fetch server metrics from /metrics: {e}")
+    
+    # 3. Add GPU type from environment variable (vLLM doesn't expose this via API)
+    gpu_type = os.getenv("GPU_TYPE")
+    if gpu_type:
+        config["gpu_type"] = gpu_type
+    else:
+        config["gpu_type"] = "Not specified (set GPU_TYPE env variable)"
+    
+    # 4. Add vLLM configuration parameters from environment variables
+    # These are not exposed via vLLM API, so we use env vars as fallback
+    vllm_params = {
+        "gpu_memory_utilization": os.getenv("VLLM_GPU_MEMORY_UTILIZATION", "0.95"),
+        "enable_auto_tool_choice": os.getenv("VLLM_ENABLE_AUTO_TOOL_CHOICE", "true"),
+        "tool_call_parser": os.getenv("VLLM_TOOL_CALL_PARSER", "qwen3_coder"),
+        "reasoning_parser": os.getenv("VLLM_REASONING_PARSER", "qwen3"),
+        "language_model_only": os.getenv("VLLM_LANGUAGE_MODEL_ONLY", "true"),
+        "enable_prefix_caching": os.getenv("VLLM_ENABLE_PREFIX_CACHING", "true"),
+        "max_model_len": os.getenv("VLLM_MAX_MODEL_LEN", "131072"),
+        "enforce_eager": os.getenv("VLLM_ENFORCE_EAGER", "true"),
+        "trust_remote_code": os.getenv("VLLM_TRUST_REMOTE_CODE", "true"),
+    }
+    config["vllm_params"] = vllm_params
+    
+    return config
+
+
+def parse_vllm_metrics(metrics_text: str) -> dict:
+    """Parse Prometheus metrics text to extract key vLLM configuration.
+    
+    Extracts: GPU memory usage, cache usage, block counts, request counts.
+    """
+    parsed = {}
+    
+    for line in metrics_text.split('\n'):
+        line = line.strip()
+        if line.startswith('#') or not line:
+            continue
+        
+        # Parse metric lines: metric_name{labels} value
+        if '{' in line:
+            parts = line.split('{')
+            metric_name = parts[0].strip()
+            value = parts[1].split('}')[-1].strip() if len(parts) > 1 else ""
+            
+            # Extract specific metrics we care about
+            if metric_name == "vllm:gpu_memory_usage_gb":
+                parsed["gpu_memory_usage_gb"] = float(value) if value else 0
+            elif metric_name == "vllm:gpu_memory_usage":
+                # Convert bytes to GB
+                parsed["gpu_memory_usage_gb"] = float(value) / (1024**3) if value else 0
+            elif metric_name == "vllm:gpu_cache_usage_perc":
+                parsed["gpu_cache_usage"] = float(value) if value else 0
+            elif metric_name == "vllm:num_gpu_blocks":
+                parsed["num_gpu_blocks"] = int(float(value)) if value else 0
+            elif metric_name == "vllm:num_cpu_blocks":
+                parsed["num_cpu_blocks"] = int(float(value)) if value else 0
+            elif metric_name == "vllm:num_requests_running":
+                parsed["running_requests"] = int(float(value)) if value else 0
+            elif metric_name == "vllm:num_requests_waiting":
+                parsed["waiting_requests"] = int(float(value)) if value else 0
+            elif metric_name == "vllm:gpu_utilization":
+                parsed["gpu_utilization"] = float(value) if value else 0
+    
+    return parsed
 
 
 async def main():
@@ -47,6 +152,19 @@ async def main():
     
     # Headers with API key
     headers = {"Authorization": f"Bearer {api_key}"}
+    
+    # Fetch server configuration
+    print("\nFetching server configuration...")
+    server_config = await fetch_server_config(base_url, headers)
+    print(f"GPU Type: {server_config.get('gpu_type', 'N/A')}")
+    print(f"Model Root: {server_config.get('model_root', 'N/A')}")
+    if server_config.get('metrics'):
+        metrics = server_config['metrics']
+        if metrics.get('gpu_memory_usage_gb'):
+            print(f"GPU Memory Usage: {metrics['gpu_memory_usage_gb']:.2f} GB")
+        if metrics.get('gpu_cache_usage'):
+            print(f"GPU Cache Usage: {metrics['gpu_cache_usage']:.1f}%")
+    print("-" * 50)
     
     # Fetch model from server if not specified
     if model_id is None:
@@ -135,17 +253,7 @@ async def main():
         ssl_context=None,
     )
     
-    # Print results
-    print("\n" + "=" * 50)
-    print("BENCHMARK RESULTS")
-    print("=" * 50)
-    for key, value in benchmark_result.items():
-        if isinstance(value, float):
-            print(f"  {key}: {value:.4f}")
-        else:
-            print(f"  {key}: {value}")
-    
-    # Save results to JSON
+    # Save results to JSON with organized folder structure and timestamped filename
     result_json = {
         "backend": backend,
         "model_id": model_id,
@@ -155,13 +263,32 @@ async def main():
         **benchmark_result
     }
     
-    with open("benchmark_results.json", "w") as f:
+    # Add server configuration to results
+    result_json["server_config"] = server_config
+    
+    # Create timestamp for filename
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    safe_model_name = re.sub(r'[^a-zA-Z0-9_-]', '_', model_id)
+    
+    # Create result folder if it doesn't exist
+    os.makedirs("result", exist_ok=True)
+    
+    # Save JSON results
+    result_filename = f"result/benchmark_{safe_model_name}_{timestamp}.json"
+    with open(result_filename, "w") as f:
         json.dump(result_json, f, indent=2, default=str)
-    print(f"\nResults saved to benchmark_results.json")
     
     # Generate and save markdown summary
-    generate_markdown_summary(result_json)
-    print("Markdown summary saved to benchmark_summary.md")
+    os.makedirs("summary", exist_ok=True)
+    summary_filename = f"summary/benchmark_{safe_model_name}_{timestamp}.md"
+    summary_md = generate_markdown_summary(result_json, summary_filename)
+    
+    print("\n" + "=" * 50)
+    print("BENCHMARK SUMMARY")
+    print("=" * 50)
+    print(summary_md)
+    print(f"\nResults saved to {result_filename}")
+    print(f"Markdown summary saved to {summary_filename}")
 
 
 if __name__ == "__main__":

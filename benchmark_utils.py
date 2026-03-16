@@ -7,8 +7,16 @@ Contains functions that don't require vLLM dependencies
 from datetime import timedelta
 
 
-def generate_markdown_summary(result: dict) -> None:
-    """Generate a markdown summary from benchmark results."""
+def generate_markdown_summary(result: dict, output_path: str = "benchmark_summary.md") -> str:
+    """Generate a markdown summary from benchmark results.
+    
+    Args:
+        result: Dictionary containing benchmark results
+        output_path: Path to save the markdown summary (default: benchmark_summary.md)
+    
+    Returns:
+        The generated markdown string
+    """
     model_id = result.get("model_id", "N/A")
     model_name = result.get("model_name", "N/A")
     backend = result.get("backend", "N/A")
@@ -47,6 +55,39 @@ def generate_markdown_summary(result: dict) -> None:
     output_throughput = result.get("output_throughput", 0)
     max_concurrency = result.get("max_concurrent_requests", 0)
     
+    # Server configuration (optional)
+    server_config = result.get("server_config", {})
+    
+    # Extract hardware info
+    gpu_type = server_config.get("gpu_type", "N/A")
+    model_root = server_config.get("model_root", "N/A")
+    
+    # Extract metrics from server config
+    metrics = server_config.get("metrics", {})
+    gpu_memory_usage_gb = metrics.get("gpu_memory_usage_gb", 0)
+    gpu_cache_usage = metrics.get("gpu_cache_usage", 0)
+    num_gpu_blocks = metrics.get("num_gpu_blocks", 0)
+    num_cpu_blocks = metrics.get("num_cpu_blocks", 0)
+    gpu_utilization = metrics.get("gpu_utilization", 0)
+    
+    # Format GPU memory to human-readable
+    if gpu_memory_usage_gb:
+        gpu_memory_str = f"{gpu_memory_usage_gb:.2f} GB"
+    else:
+        gpu_memory_str = "N/A"
+    
+    # Extract vLLM parameters
+    vllm_params = server_config.get("vllm_params", {})
+    gpu_memory_utilization = vllm_params.get("gpu_memory_utilization", "N/A")
+    enable_auto_tool_choice = vllm_params.get("enable_auto_tool_choice", "N/A")
+    tool_call_parser = vllm_params.get("tool_call_parser", "N/A")
+    reasoning_parser = vllm_params.get("reasoning_parser", "N/A")
+    language_model_only = vllm_params.get("language_model_only", "N/A")
+    enable_prefix_caching = vllm_params.get("enable_prefix_caching", "N/A")
+    max_model_len = vllm_params.get("max_model_len", "N/A")
+    enforce_eager = vllm_params.get("enforce_eager", "N/A")
+    trust_remote_code = vllm_params.get("trust_remote_code", "N/A")
+    
     # Format duration
     duration_td = timedelta(seconds=duration)
     duration_str = str(duration_td)
@@ -84,6 +125,50 @@ def generate_markdown_summary(result: dict) -> None:
     
     notes_str = "\n".join(f"- {note}" for note in notes)
     
+    # Build Hardware & Configuration section
+    hardware_section = """
+## 🖥️ Hardware & Configuration
+
+### Hardware
+| Parameter | Value |
+|-----------|-------|
+| **GPU Type** | {gpu_type} |
+| **Model Root Path** | {model_root} |
+| **GPU Memory Usage** | {gpu_memory_str} |
+| **GPU Cache Usage** | {gpu_cache_usage:.1f}% |
+| **GPU Blocks** | {num_gpu_blocks} |
+| **CPU Blocks** | {num_cpu_blocks} |
+
+### vLLM Parameters
+| Parameter | Value |
+|-----------|-------|
+| **gpu_memory_utilization** | {gpu_memory_utilization} |
+| **enable_auto_tool_choice** | {enable_auto_tool_choice} |
+| **tool_call_parser** | {tool_call_parser} |
+| **reasoning_parser** | {reasoning_parser} |
+| **language_model_only** | {language_model_only} |
+| **enable_prefix_caching** | {enable_prefix_caching} |
+| **max_model_len** | {max_model_len} |
+| **enforce_eager** | {enforce_eager} |
+| **trust_remote_code** | {trust_remote_code} |
+""".format(
+        gpu_type=gpu_type,
+        model_root=model_root,
+        gpu_memory_str=gpu_memory_str,
+        gpu_cache_usage=gpu_cache_usage if gpu_cache_usage else 0,
+        num_gpu_blocks=num_gpu_blocks if num_gpu_blocks else 0,
+        num_cpu_blocks=num_cpu_blocks if num_cpu_blocks else 0,
+        gpu_memory_utilization=gpu_memory_utilization,
+        enable_auto_tool_choice=enable_auto_tool_choice,
+        tool_call_parser=tool_call_parser,
+        reasoning_parser=reasoning_parser,
+        language_model_only=language_model_only,
+        enable_prefix_caching=enable_prefix_caching,
+        max_model_len=max_model_len,
+        enforce_eager=enforce_eager,
+        trust_remote_code=trust_remote_code,
+    )
+    
     # Build markdown
     md = f"""# 📊 Benchmark Results Summary
 
@@ -94,7 +179,7 @@ def generate_markdown_summary(result: dict) -> None:
 | **Model Name** | {model_name} |
 | **Backend** | {backend} |
 
-## Test Configuration
+{hardware_section}## Test Configuration
 | Metric | Value |
 |--------|-------|
 | **Prompts Tested** | {num_prompts} |
@@ -153,5 +238,7 @@ def generate_markdown_summary(result: dict) -> None:
 *Generated from benchmark_results.json*
 """
     
-    with open("benchmark_summary.md", "w") as f:
+    with open(output_path, "w") as f:
         f.write(md)
+    
+    return md
