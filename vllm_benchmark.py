@@ -51,6 +51,8 @@ async def fetch_server_config(base_url: str, headers: dict) -> dict:
                         config["model_id"] = model_info.get("id", "N/A")
                         config["model_root"] = model_info.get("root", "N/A")
                         config["model_object"] = model_info.get("object", "model")
+                        # Extract max_model_len from the API response
+                        config["max_model_len"] = model_info.get("max_model_len")
                 else:
                     print(f"Warning: /v1/models returned status {response.status}")
         except Exception as e:
@@ -84,11 +86,18 @@ async def fetch_server_config(base_url: str, headers: dict) -> dict:
         "reasoning_parser": os.getenv("VLLM_REASONING_PARSER", "qwen3"),
         "language_model_only": os.getenv("VLLM_LANGUAGE_MODEL_ONLY", "true"),
         "enable_prefix_caching": os.getenv("VLLM_ENABLE_PREFIX_CACHING", "true"),
-        "max_model_len": os.getenv("VLLM_MAX_MODEL_LEN", "131072"),
         "enforce_eager": os.getenv("VLLM_ENFORCE_EAGER", "true"),
         "trust_remote_code": os.getenv("VLLM_TRUST_REMOTE_CODE", "true"),
     }
     config["vllm_params"] = vllm_params
+    
+    # Use max_model_len from API if available, otherwise fall back to env var
+    if config.get("max_model_len") is not None:
+        vllm_params["max_model_len"] = config["max_model_len"]
+        # Remove from top-level config since it's now in vllm_params
+        del config["max_model_len"]
+    else:
+        vllm_params["max_model_len"] = os.getenv("VLLM_MAX_MODEL_LEN", "131072")
     
     return config
 
