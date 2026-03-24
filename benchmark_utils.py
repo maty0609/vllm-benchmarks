@@ -64,6 +64,9 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
     # Extract model info (moved from server_config to top level)
     model_root = server_config.get("model_root", "N/A")
     
+    # Extract vLLM version
+    vllm_version = server_config.get("vllm_version", "N/A")
+    
     # Extract vLLM parameters
     vllm_params = server_config.get("vllm_params", {})
     gpu_memory_utilization = vllm_params.get("gpu_memory_utilization", "N/A")
@@ -122,9 +125,10 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
 |-----------|-------|
 | **GPU Type** | {gpu_type} |
 
-### vLLM Parameters
+### vLLM Information
 | Parameter | Value |
 |-----------|-------|
+| **vLLM Version** | {vllm_version} |
 | **gpu_memory_utilization** | {gpu_memory_utilization} |
 | **enable_auto_tool_choice** | {enable_auto_tool_choice} |
 | **tool_call_parser** | {tool_call_parser} |
@@ -136,6 +140,7 @@ def generate_markdown_summary(result: dict, output_path: str = "benchmark_summar
 | **trust_remote_code** | {trust_remote_code} |
 """.format(
         gpu_type=gpu_type,
+        vllm_version=vllm_version,
         gpu_memory_utilization=gpu_memory_utilization,
         enable_auto_tool_choice=enable_auto_tool_choice,
         tool_call_parser=tool_call_parser,

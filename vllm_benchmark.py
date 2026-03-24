@@ -30,7 +30,18 @@ async def fetch_server_config(base_url: str, headers: dict) -> dict:
     connector = aiohttp.TCPConnector()
     
     async with aiohttp.ClientSession(connector=connector) as session:
-        # 1. Fetch full model info from /v1/models
+        # 1. Fetch vLLM version from /version
+        try:
+            async with session.get(f"{base_url}/version", headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    config["vllm_version"] = data.get("version", "N/A")
+                else:
+                    print(f"Warning: /version returned status {response.status}")
+        except Exception as e:
+            print(f"Warning: Could not fetch vLLM version from /version: {e}")
+        
+        # 2. Fetch full model info from /v1/models
         try:
             async with session.get(f"{base_url}/v1/models", headers=headers) as response:
                 if response.status == 200:
